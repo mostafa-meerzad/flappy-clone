@@ -22,7 +22,6 @@ window/size/viewport_height=512
 window/size/window_width_override=432
 window/size/window_height_override=768
 window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
 window/handheld/orientation="portrait"
 
 [input]
