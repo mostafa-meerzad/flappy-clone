@@ -15,13 +15,16 @@ func _ready() -> void:
 	streams["point"] = _make_point()
 	streams["hit"] = _make_hit()
 	streams["die"] = _make_die()
+	streams["whoosh"] = _make_whoosh()
+	streams["chime"] = _make_chime()
 
-func play(id: String) -> void:
+func play(id: String, pitch: float = 1.0) -> void:
 	if not streams.has(id):
 		return
 	var p: AudioStreamPlayer = players[idx]
 	idx = (idx + 1) % players.size()
 	p.stream = streams[id]
+	p.pitch_scale = pitch
 	p.play()
 
 func _wav(s: PackedFloat32Array) -> AudioStreamWAV:
@@ -83,6 +86,33 @@ func _make_hit() -> AudioStreamWAV:
 		var tri := 2.0 * absf(2.0 * (ph - 0.5)) - 1.0
 		var env := pow(1.0 - t, 1.5)
 		s[i] = (tri * 0.6 + randf_range(-1.0, 1.0) * 0.4) * env * 0.6
+	return _wav(s)
+
+func _make_chime() -> AudioStreamWAV:
+	var total := _n(0.3)
+	var s := PackedFloat32Array()
+	s.resize(total)
+	var partials := [1568.0, 2349.0, 3136.0]
+	var gains := [0.5, 0.3, 0.18]
+	for i in total:
+		var t := float(i) / float(total)
+		var v := 0.0
+		for k in partials.size():
+			var f: float = partials[k]
+			v += sin(float(i) * f / float(RATE) * TAU) * float(gains[k])
+		s[i] = v * pow(1.0 - t, 2.2) * 0.6
+	return _wav(s)
+
+func _make_whoosh() -> AudioStreamWAV:
+	var total := _n(0.25)
+	var s := PackedFloat32Array()
+	s.resize(total)
+	var lp := 0.0
+	for i in total:
+		var t := float(i) / float(total)
+		lp = lerpf(lp, randf_range(-1.0, 1.0), 0.06 + 0.5 * t)
+		var env := sin(t * PI)
+		s[i] = lp * env * 0.7
 	return _wav(s)
 
 func _make_die() -> AudioStreamWAV:

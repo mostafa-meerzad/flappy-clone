@@ -8,6 +8,16 @@ const SPAWN_INTERVAL := 1.45
 const BIRD_X := 80.0
 const BIRD_START_Y := 200.0
 const SAVE_PATH := "user://save.cfg"
+const RING_SCORE := 3
+const FIRE_STREAK := 5
+const FIRE_SCORE := 2
+const PERFECT_PITCH := 1.5
+const PERFECT_POP := 1.35
+const PERFECT_FADE := 0.6
+const PERFECT_RISE := 26.0
+const PERFECT_OFFSET := Vector2(18.0, -22.0)
+const FIRE_TINT := Color(1.0, 0.76, 0.52)
+const FIRE_TRAIL_OFFSET := Vector2(-18.0, 2.0)
 
 const BirdScript := preload("res://bird.gd")
 const PipeScript := preload("res://pipe_pair.gd")
@@ -25,6 +35,8 @@ var shake_t: float = 0.0
 var over_t: float = 0.0
 var last_gap: float = 220.0
 var die_played: bool = false
+var streak: int = 0
+var on_fire: bool = false
 
 var vr: Vector2 = Vector2(288.0, 512.0)
 var sky: TextureRect
@@ -32,6 +44,9 @@ var sky_tex: GradientTexture2D
 var ground: ColorRect
 var hills: Array = []
 var bands: Array = []
+
+var perfect_lbl: Label
+var fire: CPUParticles2D
 
 var bird
 var sfx
@@ -125,6 +140,25 @@ func _build_world() -> void:
 	bird.z_index = 5
 	add_child(bird)
 	bird.reset(BIRD_START_Y)
+
+	fire = CPUParticles2D.new()
+	fire.emitting = false
+	fire.amount = 48
+	fire.lifetime = 0.5
+	fire.position = FIRE_TRAIL_OFFSET
+	fire.direction = Vector2(-1.0, 0.0)
+	fire.spread = 18.0
+	fire.initial_velocity_min = 60.0
+	fire.initial_velocity_max = 130.0
+	fire.scale_amount_min = 2.0
+	fire.scale_amount_max = 4.5
+	fire.damping_min = 40.0
+	fire.damping_max = 90.0
+	var fire_grad := Gradient.new()
+	fire_grad.set_color(0, Color(1.0, 0.95, 0.35, 1.0))
+	fire_grad.set_color(1, Color(1.0, 0.35, 0.05, 0.0))
+	fire.color_ramp = fire_grad
+	bird.add_child(fire)
 
 	cam = Camera2D.new()
 	cam.position = vr * 0.5
@@ -249,6 +283,15 @@ func _build_ui() -> void:
 	btn.pressed.connect(_on_restart)
 	panel.add_child(btn)
 
+	perfect_lbl = _big(13, 4)
+	perfect_lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
+	perfect_lbl.size = Vector2(80.0, 18.0)
+	perfect_lbl.pivot_offset = Vector2(40.0, 9.0)
+	perfect_lbl.text = "PERFECT"
+	perfect_lbl.modulate.a = 0.0
+	perfect_lbl.z_index = 10
+	add_child(perfect_lbl)
+
 	flash = ColorRect.new()
 	flash.color = Color(1, 1, 1, 0)
 	flash.position = Vector2.ZERO
@@ -268,6 +311,9 @@ func _enter_ready() -> void:
 	die_played = false
 	is_new_best = false
 	last_gap = 220.0
+	_end_fire()
+	streak = 0
+	perfect_lbl.modulate.a = 0.0
 	score_lbl.text = "0"
 	score_lbl.visible = true
 	tap_lbl.visible = true
@@ -289,6 +335,8 @@ func _die() -> void:
 	if state != State.PLAYING:
 		return
 	state = State.DEAD
+	_end_fire()
+	streak = 0
 	sfx.play("hit")
 	shake_t = 0.25
 	flash.color = Color(1, 1, 1, 0.8)
@@ -374,18 +422,60 @@ func _spawn_pipe() -> void:
 	pipes.add_child(p)
 	p.setup(gap_center)
 	p.scored.connect(_on_scored)
+	p.ring_taken.connect(_on_ring_taken)
 	p.body_entered.connect(_on_pipe_hit)
 
 func _on_pipe_hit(_body: Node2D) -> void:
 	_die()
 
-func _on_scored() -> void:
-	score += 1
+func _on_scored(perfect: bool) -> void:
+	if perfect:
+		streak += 1
+		_show_perfect()
+	else:
+		streak = 0
+		_end_fire()
+	if streak >= FIRE_STREAK and not on_fire:
+		_start_fire()
+	score += FIRE_SCORE if on_fire else 1
 	score_lbl.text = str(score)
-	sfx.play("point")
+	sfx.play("point", PERFECT_PITCH if perfect else 1.0)
 	score_lbl.scale = Vector2(1.25, 1.25)
 	var tw := create_tween()
 	tw.tween_property(score_lbl, "scale", Vector2.ONE, 0.15)
+
+func _on_ring_taken() -> void:
+	score += RING_SCORE
+	score_lbl.text = str(score)
+	sfx.play("chime")
+	score_lbl.scale = Vector2(1.25, 1.25)
+	var tw := create_tween()
+	tw.tween_property(score_lbl, "scale", Vector2.ONE, 0.15)
+
+func _show_perfect() -> void:
+	perfect_lbl.position = bird.position + PERFECT_OFFSET - perfect_lbl.pivot_offset
+	perfect_lbl.modulate.a = 1.0
+	perfect_lbl.scale = Vector2(0.6, 0.6)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(perfect_lbl, "scale", Vector2(PERFECT_POP, PERFECT_POP), 0.12)
+	tw.chain().tween_property(perfect_lbl, "scale", Vector2.ONE, 0.1)
+	tw.parallel().tween_property(perfect_lbl, "modulate:a", 0.0, PERFECT_FADE)
+	tw.parallel().tween_property(perfect_lbl, "position:y",
+		perfect_lbl.position.y - PERFECT_RISE, PERFECT_FADE)
+
+func _start_fire() -> void:
+	on_fire = true
+	fire.emitting = true
+	bird.modulate = FIRE_TINT
+	sfx.play("whoosh")
+
+func _end_fire() -> void:
+	if not on_fire:
+		return
+	on_fire = false
+	fire.emitting = false
+	bird.modulate = Color.WHITE
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("flap"):

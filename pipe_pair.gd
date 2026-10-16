@@ -1,6 +1,7 @@
 extends Area2D
 
-signal scored
+signal scored(perfect: bool)
+signal ring_taken
 
 const PIPE_W := 52.0
 const GAP := 120.0
@@ -9,11 +10,29 @@ const BODY_LEN := 520.0
 const CAP_REGION := Rect2(468.0, 700.0, 300.0, 140.0)
 const SHAFT_REGION := Rect2(468.0, 300.0, 300.0, 100.0)
 
+const PERFECT_WINDOW := 20.0
+const RING_CHANCE := 0.25
+const RING_RADIUS := 15.0
+const RING_WIDTH := 4.0
+const RING_SEGMENTS := 24
+const RING_OFFSET := 25.0
+const RING_PULSE := 1.14
+const RING_PULSE_TIME := 0.55
+const RING_COLOR := Color(1.0, 0.84, 0.22)
+const SPARK_AMOUNT := 28
+const SPARK_LIFETIME := 0.45
+
+var gap_y: float = 0.0
+var ring: Area2D
+var ring_line: Line2D
+var sparks: CPUParticles2D
+var ring_done: bool = false
 var speed: float = 120.0
 var moving: bool = true
 var counted: bool = false
 
 func setup(gap_center: float) -> void:
+	gap_y = gap_center
 	collision_layer = 0
 	collision_mask = 1
 	monitorable = false
@@ -49,6 +68,70 @@ func setup(gap_center: float) -> void:
 	zone.body_entered.connect(_on_zone_entered)
 	add_child(zone)
 
+	if randf() < RING_CHANCE:
+		_add_ring(gap_center + randf_range(-RING_OFFSET, RING_OFFSET))
+
+func _add_ring(y: float) -> void:
+	ring = Area2D.new()
+	ring.collision_layer = 0
+	ring.collision_mask = 1
+	ring.monitorable = false
+	ring.position = Vector2(0.0, y)
+	ring.z_index = -9
+
+	ring_line = Line2D.new()
+	var pts := PackedVector2Array()
+	for i in RING_SEGMENTS + 1:
+		var a := float(i) / float(RING_SEGMENTS) * TAU
+		pts.append(Vector2(cos(a), sin(a)) * RING_RADIUS)
+	ring_line.points = pts
+	ring_line.closed = true
+	ring_line.width = RING_WIDTH
+	ring_line.default_color = RING_COLOR
+	ring_line.joint_mode = Line2D.LINE_JOINT_ROUND
+	ring.add_child(ring_line)
+
+	var cs := CollisionShape2D.new()
+	var circle := CircleShape2D.new()
+	circle.radius = RING_RADIUS
+	cs.shape = circle
+	ring.add_child(cs)
+
+	sparks = CPUParticles2D.new()
+	sparks.emitting = false
+	sparks.one_shot = true
+	sparks.explosiveness = 1.0
+	sparks.amount = SPARK_AMOUNT
+	sparks.lifetime = SPARK_LIFETIME
+	sparks.spread = 180.0
+	sparks.gravity = Vector2(0.0, 120.0)
+	sparks.initial_velocity_min = 60.0
+	sparks.initial_velocity_max = 170.0
+	sparks.scale_amount_min = 1.0
+	sparks.scale_amount_max = 2.5
+	var grad := Gradient.new()
+	grad.set_color(0, Color(1.0, 0.97, 0.7, 1.0))
+	grad.set_color(1, Color(1.0, 0.72, 0.1, 0.0))
+	sparks.color_ramp = grad
+	ring.add_child(sparks)
+
+	ring.body_entered.connect(_on_ring_entered)
+	add_child(ring)
+
+	var tw := ring_line.create_tween()
+	tw.set_loops()
+	tw.tween_property(ring_line, "scale", Vector2(RING_PULSE, RING_PULSE), RING_PULSE_TIME)
+	tw.tween_property(ring_line, "scale", Vector2.ONE, RING_PULSE_TIME)
+
+func _on_ring_entered(_body: Node2D) -> void:
+	if ring_done:
+		return
+	ring_done = true
+	ring_line.visible = false
+	ring.set_deferred("monitoring", false)
+	sparks.emitting = true
+	ring_taken.emit()
+
 func _add_sprite(tex: Texture2D, region: Rect2, spr_scale: Vector2, pos: Vector2, flip: bool) -> void:
 	var spr := Sprite2D.new()
 	spr.texture = tex
@@ -67,11 +150,12 @@ func _add_shape(pos: Vector2, height: float) -> void:
 	cs.position = pos
 	add_child(cs)
 
-func _on_zone_entered(_body: Node2D) -> void:
+func _on_zone_entered(body: Node2D) -> void:
 	if counted:
 		return
 	counted = true
-	scored.emit()
+	var dy: float = absf(body.global_position.y - global_position.y - gap_y)
+	scored.emit(dy <= PERFECT_WINDOW)
 
 func _process(delta: float) -> void:
 	if not moving:
