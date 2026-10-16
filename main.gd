@@ -26,6 +26,13 @@ var over_t: float = 0.0
 var last_gap: float = 220.0
 var die_played: bool = false
 
+var vr: Vector2 = Vector2(288.0, 512.0)
+var sky: TextureRect
+var sky_tex: GradientTexture2D
+var ground: ColorRect
+var hills: Array = []
+var bands: Array = []
+
 var bird
 var sfx
 var cam: Camera2D
@@ -44,8 +51,11 @@ var btn: Button
 func _ready() -> void:
 	randomize()
 	_load_best()
+	vr = get_viewport().get_visible_rect().size
 	_build_world()
 	_build_ui()
+	_relayout()
+	get_viewport().size_changed.connect(_relayout)
 	sfx = SfxScript.new()
 	add_child(sfx)
 	_enter_ready()
@@ -53,19 +63,19 @@ func _ready() -> void:
 # ---------- world ----------
 
 func _build_world() -> void:
-	var sky := TextureRect.new()
+	sky = TextureRect.new()
 	var grad := Gradient.new()
 	grad.set_color(0, Color(0.42, 0.75, 0.93))
 	grad.set_color(1, Color(0.78, 0.94, 0.95))
-	var gt := GradientTexture2D.new()
-	gt.gradient = grad
-	gt.fill_from = Vector2(0, 0)
-	gt.fill_to = Vector2(0, 1)
-	gt.width = int(VW)
-	gt.height = int(VH)
-	sky.texture = gt
+	sky_tex = GradientTexture2D.new()
+	sky_tex.gradient = grad
+	sky_tex.fill_from = Vector2(0, 0)
+	sky_tex.fill_to = Vector2(0, 1)
+	sky_tex.width = int(vr.x)
+	sky_tex.height = int(vr.y)
+	sky.texture = sky_tex
 	sky.position = Vector2.ZERO
-	sky.size = Vector2(VW, VH)
+	sky.size = vr
 	sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sky.z_index = -100
 	add_child(sky)
@@ -79,27 +89,28 @@ func _build_world() -> void:
 			var poly := Polygon2D.new()
 			poly.polygon = _hill_points(float(d["amp"]), float(d["base"]), float(d["phase"]))
 			poly.color = d["col"]
-			poly.position = Vector2(VW * float(copy), 0.0)
+			poly.position = Vector2(vr.x * float(copy), 0.0)
 			poly.z_index = -90
 			add_child(poly)
+			hills.append({"node": poly, "amp": float(d["amp"]), "base": float(d["base"]), "phase": float(d["phase"])})
 			scrollers.append({"node": poly, "speed": SCROLL * 0.3})
 
 	pipes = Node2D.new()
 	add_child(pipes)
 
-	var ground := ColorRect.new()
+	ground = ColorRect.new()
 	ground.color = Color(0.87, 0.78, 0.50)
 	ground.position = Vector2(0.0, GROUND_Y)
-	ground.size = Vector2(VW, VH - GROUND_Y)
+	ground.size = Vector2(vr.x, vr.y - GROUND_Y)
 	ground.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ground.z_index = 0
 	add_child(ground)
 
 	for copy in 2:
 		var band := Node2D.new()
-		band.position = Vector2(VW * float(copy), GROUND_Y)
+		band.position = Vector2(vr.x * float(copy), GROUND_Y)
 		band.z_index = 1
-		for i in 12:
+		for i in 40:
 			var dash := ColorRect.new()
 			dash.color = Color(0.64, 0.56, 0.32)
 			dash.position = Vector2(float(i) * 24.0, 0.0)
@@ -107,6 +118,7 @@ func _build_world() -> void:
 			dash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			band.add_child(dash)
 		add_child(band)
+		bands.append(band)
 		scrollers.append({"node": band, "speed": SCROLL})
 
 	bird = BirdScript.new()
@@ -115,17 +127,46 @@ func _build_world() -> void:
 	bird.reset(BIRD_START_Y)
 
 	cam = Camera2D.new()
-	cam.position = Vector2(VW * 0.5, VH * 0.5)
+	cam.position = vr * 0.5
 	add_child(cam)
+
+func _relayout() -> void:
+	vr = get_viewport().get_visible_rect().size
+	sky.size = vr
+	sky_tex.width = int(vr.x)
+	sky_tex.height = int(vr.y)
+	for h in hills:
+		var poly: Polygon2D = h["node"]
+		poly.polygon = _hill_points(float(h["amp"]), float(h["base"]), float(h["phase"]))
+	ground.size = Vector2(vr.x, maxf(vr.y - GROUND_Y, 0.0))
+	cam.position = vr * 0.5
+	score_lbl.size.x = vr.x
+	score_lbl.pivot_offset.x = vr.x * 0.5
+	tap_lbl.size.x = vr.x
+	flash.size = vr
+	panel.position.x = (vr.x - panel.size.x) * 0.5
+	if state != State.GAME_OVER:
+		panel.position.y = vr.y + 20.0
+	var i := 0
+	for b in bands:
+		var node: Node2D = b
+		if state != State.PLAYING:
+			node.position = Vector2(vr.x * float(i), GROUND_Y)
+		i += 1
+	for s in scrollers:
+		var n: Node2D = s["node"]
+		while n.position.x <= -vr.x:
+			n.position.x += vr.x * 2.0
+
 
 func _hill_points(amp: float, base_y: float, phase: float) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	var steps := 20
 	for i in steps + 1:
 		var t := float(i) / float(steps)
-		pts.append(Vector2(t * VW, base_y - amp * (0.5 + 0.5 * sin(t * TAU + phase))))
-	pts.append(Vector2(VW, VH))
-	pts.append(Vector2(0.0, VH))
+		pts.append(Vector2(t * vr.x, base_y - amp * (0.5 + 0.5 * sin(t * TAU + phase))))
+	pts.append(Vector2(vr.x, vr.y))
+	pts.append(Vector2(0.0, vr.y))
 	return pts
 
 # ---------- ui ----------
@@ -146,14 +187,14 @@ func _build_ui() -> void:
 
 	score_lbl = _big(44, 8)
 	score_lbl.position = Vector2(0.0, 26.0)
-	score_lbl.size = Vector2(VW, 56.0)
-	score_lbl.pivot_offset = Vector2(VW * 0.5, 28.0)
+	score_lbl.size = Vector2(vr.x, 56.0)
+	score_lbl.pivot_offset = Vector2(vr.x * 0.5, 28.0)
 	score_lbl.text = "0"
 	layer.add_child(score_lbl)
 
 	tap_lbl = _big(18, 5)
 	tap_lbl.position = Vector2(0.0, 280.0)
-	tap_lbl.size = Vector2(VW, 30.0)
+	tap_lbl.size = Vector2(vr.x, 30.0)
 	tap_lbl.text = "TAP TO START"
 	layer.add_child(tap_lbl)
 
@@ -164,8 +205,8 @@ func _build_ui() -> void:
 	sb.set_border_width_all(3)
 	sb.set_corner_radius_all(12)
 	panel.add_theme_stylebox_override("panel", sb)
-	panel.position = Vector2(40.0, VH + 20.0)
 	panel.size = Vector2(208.0, 182.0)
+	panel.position = Vector2((vr.x - 208.0) * 0.5, vr.y + 20.0)
 	layer.add_child(panel)
 
 	var title := _big(20, 0)
@@ -211,7 +252,7 @@ func _build_ui() -> void:
 	flash = ColorRect.new()
 	flash.color = Color(1, 1, 1, 0)
 	flash.position = Vector2.ZERO
-	flash.size = Vector2(VW, VH)
+	flash.size = vr
 	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(flash)
 
@@ -231,7 +272,7 @@ func _enter_ready() -> void:
 	score_lbl.visible = true
 	tap_lbl.visible = true
 	new_lbl.visible = false
-	panel.position.y = VH + 20.0
+	panel.position = Vector2((vr.x - panel.size.x) * 0.5, vr.y + 20.0)
 	flash.color = Color(1, 1, 1, 0)
 	for p in pipes.get_children():
 		p.queue_free()
@@ -321,15 +362,15 @@ func _scroll(delta: float) -> void:
 	for s in scrollers:
 		var n: Node2D = s["node"]
 		n.position.x -= float(s["speed"]) * delta
-		if n.position.x <= -VW:
-			n.position.x += VW * 2.0
+		if n.position.x <= -vr.x:
+			n.position.x += vr.x * 2.0
 
 func _spawn_pipe() -> void:
 	var target := randf_range(140.0, 300.0)
 	var gap_center := clampf(target, last_gap - 120.0, last_gap + 120.0)
 	last_gap = gap_center
 	var p = PipeScript.new()
-	p.position = Vector2(VW + 30.0, 0.0)
+	p.position = Vector2(vr.x + 30.0, 0.0)
 	pipes.add_child(p)
 	p.setup(gap_center)
 	p.scored.connect(_on_scored)
