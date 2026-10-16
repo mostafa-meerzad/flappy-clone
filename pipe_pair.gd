@@ -3,8 +3,11 @@ extends Area2D
 signal scored
 
 const PIPE_W := 52.0
-const GAP := 110.0
-const PIPE_LEN := 420.0
+const GAP := 120.0
+const BODY_LEN := 520.0
+# Opaque art inside the 1200x1200 canvas: shaft x 480-755, cap x 468-767 (y 700-840).
+const CAP_REGION := Rect2(468.0, 700.0, 300.0, 140.0)
+const SHAFT_REGION := Rect2(468.0, 300.0, 300.0, 100.0)
 
 var speed: float = 120.0
 var moving: bool = true
@@ -16,40 +19,22 @@ func setup(gap_center: float) -> void:
 	monitorable = false
 	z_index = -10
 	var tex: Texture2D = load("res://art/pipe.png")
-	var ts: Vector2 = tex.get_size()
-	var spr_scale := Vector2(PIPE_W / ts.x, PIPE_LEN / ts.y)
+	var s := PIPE_W / CAP_REGION.size.x
+	var cap_h := CAP_REGION.size.y * s
 
-	var bottom := Sprite2D.new()
-	bottom.texture = tex
-	bottom.scale = spr_scale
-	bottom.position = Vector2(0.0, gap_center + GAP * 0.5 + PIPE_LEN * 0.5)
-	add_child(bottom)
+	# Top pipe: cap end sits exactly on the upper gap edge, body runs off the top.
+	var top_edge := gap_center - GAP * 0.5
+	_add_sprite(tex, CAP_REGION, Vector2(s, s), Vector2(0.0, top_edge - cap_h * 0.5), false)
+	_add_sprite(tex, SHAFT_REGION, Vector2(s, BODY_LEN / SHAFT_REGION.size.y),
+		Vector2(0.0, top_edge - cap_h - BODY_LEN * 0.5), false)
+	_add_shape(Vector2(0.0, top_edge - (cap_h + BODY_LEN) * 0.5), cap_h + BODY_LEN)
 
-	var top := Sprite2D.new()
-	top.texture = tex
-	top.scale = spr_scale
-	top.flip_v = true
-	top.position = Vector2(0.0, gap_center - GAP * 0.5 - PIPE_LEN * 0.5)
-	add_child(top)
-
-	var cap_s := PIPE_W / ts.x
-	var cap_h := ts.y * cap_s
-
-	var bcap := Sprite2D.new()
-	bcap.texture = tex
-	bcap.scale = Vector2(cap_s, cap_s)
-	bcap.position = Vector2(0.0, gap_center + GAP * 0.5 + cap_h * 0.5)
-	add_child(bcap)
-
-	var tcap := Sprite2D.new()
-	tcap.texture = tex
-	tcap.scale = Vector2(cap_s, cap_s)
-	tcap.flip_v = true
-	tcap.position = Vector2(0.0, gap_center - GAP * 0.5 - cap_h * 0.5)
-	add_child(tcap)
-
-	_add_shape(bottom.position)
-	_add_shape(top.position)
+	# Bottom pipe: same art flipped vertically.
+	var bot_edge := gap_center + GAP * 0.5
+	_add_sprite(tex, CAP_REGION, Vector2(s, s), Vector2(0.0, bot_edge + cap_h * 0.5), true)
+	_add_sprite(tex, SHAFT_REGION, Vector2(s, BODY_LEN / SHAFT_REGION.size.y),
+		Vector2(0.0, bot_edge + cap_h + BODY_LEN * 0.5), true)
+	_add_shape(Vector2(0.0, bot_edge + (cap_h + BODY_LEN) * 0.5), cap_h + BODY_LEN)
 
 	var zone := Area2D.new()
 	zone.collision_layer = 0
@@ -64,10 +49,20 @@ func setup(gap_center: float) -> void:
 	zone.body_entered.connect(_on_zone_entered)
 	add_child(zone)
 
-func _add_shape(pos: Vector2) -> void:
+func _add_sprite(tex: Texture2D, region: Rect2, spr_scale: Vector2, pos: Vector2, flip: bool) -> void:
+	var spr := Sprite2D.new()
+	spr.texture = tex
+	spr.region_enabled = true
+	spr.region_rect = region
+	spr.scale = spr_scale
+	spr.position = pos
+	spr.flip_v = flip
+	add_child(spr)
+
+func _add_shape(pos: Vector2, height: float) -> void:
 	var cs := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
-	rect.size = Vector2(PIPE_W, PIPE_LEN)
+	rect.size = Vector2(PIPE_W, height)
 	cs.shape = rect
 	cs.position = pos
 	add_child(cs)

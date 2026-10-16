@@ -18,13 +18,13 @@ func _ready() -> void:
 	spr = Sprite2D.new()
 	spr.texture = tex
 	var ts: Vector2 = tex.get_size()
-	var us: float = minf(34.0 / ts.x, 24.0 / ts.y)
+	var us: float = 46.0 / ts.x
 	base_scale = Vector2(us, us)
 	spr.scale = base_scale
 	add_child(spr)
 	var col := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
-	circle.radius = 10.0
+	circle.radius = 14.0
 	col.shape = circle
 	add_child(col)
 
